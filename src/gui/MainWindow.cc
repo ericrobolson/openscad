@@ -122,6 +122,7 @@
 #include "gui/ColorList.h"
 #include "gui/Dock.h"
 #include "gui/ai/AIDock.h"
+#include "gui/ai/ChatWidget.h"
 #include "gui/Editor.h"
 #include "gui/Export3mfDialog.h"
 #include "gui/ExportPdfDialog.h"
@@ -2975,7 +2976,9 @@ void MainWindow::onExperimentalChanged()
   bool aiEnabled = Feature::ExperimentalAiFeatures.is_enabled();
   if (this->aiDock) {
     this->aiDock->toggleViewAction()->setVisible(aiEnabled);
-    if (!aiEnabled) {
+    if (aiEnabled) {
+      this->aiDock->show();
+    } else {
       this->aiDock->hide();
     }
     if (this->navigationMenu) {
@@ -3551,6 +3554,11 @@ void MainWindow::setupPreferences()
   connect(GlobalPreferences::inst(), &Preferences::ExperimentalChanged, this,
           &MainWindow::onExperimentalChanged);
   onExperimentalChanged();
+
+  if (this->aiDock) {
+    connect(GlobalPreferences::inst(), &Preferences::aiSettingsChanged,
+            this->aiDock->chatWidget(), &ChatWidget::checkConfiguration);
+  }
 }
 
 /**
@@ -3703,6 +3711,26 @@ void MainWindow::setupAIDock()
   this->aiDock = new AIDock(this);
   addDockWidget(Qt::RightDockWidgetArea, this->aiDock);
   this->aiDock->hide();
+
+  this->aiDock->chatWidget()->setEditorContentGetter([this]() -> QString {
+    return this->activeEditor ? this->activeEditor->toPlainText() : QString();
+  });
+
+  this->aiDock->chatWidget()->setScreenshotGetter([this]() -> QImage {
+    return this->qglview ? this->qglview->grabFrame() : QImage();
+  });
+
+  connect(this->aiDock->chatWidget(), &ChatWidget::applyToEditorRequested,
+          this, [this](const QString& code) {
+    if (this->activeEditor) {
+      this->activeEditor->setPlainText(code);
+    }
+  });
+
+  connect(this->aiDock->chatWidget(), &ChatWidget::renderRequested,
+          this, [this]() {
+    QTimer::singleShot(100, this, &MainWindow::actionRenderPreview);
+  });
 
   QObject::connect(this->aiDock, &Dock::visibilityChanged, this, &MainWindow::onAIDockVisibilityChanged);
 }

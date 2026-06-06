@@ -1345,8 +1345,10 @@ set(GUI_SOURCES
   src/gui/parameter/ParameterVirtualWidget.cc
   src/gui/parameter/ParameterWidget.cc
   src/gui/ai/AIDock.cc
+  src/gui/ai/AISettings.cc
   src/gui/ai/ChatWidget.cc
   src/gui/ai/ChatInputEdit.cc
+  src/gui/ai/CommandProvider.cc
   ${INPUT_DRIVER_SOURCES}
   )
 
@@ -1418,8 +1420,12 @@ set(GUI_HEADERS
     src/gui/parameter/ParameterVirtualWidget.h
     src/gui/parameter/ParameterWidget.h
     src/gui/ai/AIDock.h
+    src/gui/ai/AISettings.h
+    src/gui/ai/ChatMessage.h
+    src/gui/ai/ChatUndoCommands.h
     src/gui/ai/ChatWidget.h
     src/gui/ai/ChatInputEdit.h
+    src/gui/ai/CommandProvider.h
 )
 
 # To be added in Source for QtCreator to show them in project tree

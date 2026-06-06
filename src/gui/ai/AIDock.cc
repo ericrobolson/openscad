@@ -4,8 +4,8 @@
 
 AIDock::AIDock(QWidget *parent) : Dock(parent)
 {
-  this->chatWidget = new ChatWidget(this);
-  setWidget(this->chatWidget);
+  chatWidget_ = new ChatWidget(this);
+  setWidget(chatWidget_);
 }
 
 AIDock::~AIDock()
@@ -15,4 +15,5 @@ AIDock::~AIDock()
 void AIDock::showEvent(QShowEvent *event)
 {
   Dock::showEvent(event);
+  chatWidget_->checkConfiguration();
 }

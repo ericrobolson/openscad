@@ -82,45 +82,9 @@
 #include "gui/PrintService.h"
 #include "gui/QSettingsCached.h"
 #include "gui/SettingsWriter.h"
+#include "gui/ai/AISettings.h"
 
 static const char *featurePropertyName = "FeatureProperty";
-
-namespace {
-QString getAISettingsFilePath()
-{
-  QString configPath = QString::fromStdString(PlatformUtils::userConfigPath());
-  if (configPath.isEmpty()) {
-    configPath = QDir::homePath() + "/.openscad";
-  }
-  QDir().mkpath(configPath);
-  return configPath + "/ai_settings.json";
-}
-
-nlohmann::json readAISettings()
-{
-  QFile file(getAISettingsFilePath());
-  if (!file.open(QIODevice::ReadOnly)) {
-    return nlohmann::json::object();
-  }
-  QByteArray data = file.readAll();
-  file.close();
-  auto j = nlohmann::json::parse(data.constData(), nullptr, false);
-  if (j.is_discarded() || !j.is_object()) {
-    return nlohmann::json::object();
-  }
-  return j;
-}
-
-void writeAISettings(const nlohmann::json& j)
-{
-  QFile file(getAISettingsFilePath());
-  if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-    std::string s = j.dump(4);
-    file.write(s.c_str(), s.length());
-    file.close();
-  }
-}
-}  // namespace
 
 using S = Settings::Settings;
 
@@ -243,7 +207,7 @@ void Preferences::init()
   this->defaultmap["editor/autoCompleteIncludeFunctions"] = true;
   this->defaultmap["editor/characterThreshold"] = 1;
   this->defaultmap["editor/stepSize"] = 1;
-  this->defaultmap["ai/activeProfile"] = "OpenAI GPT-4";
+  this->defaultmap["ai/activeProfile"] = "Claude CLI";
 
   // Toolbar
   auto *group = new QActionGroup(this);
@@ -275,8 +239,8 @@ void Preferences::init()
   this->tableWidgetAIParams->setSelectionBehavior(QAbstractItemView::SelectRows);
   this->tableWidgetAIParams->setSelectionMode(QAbstractItemView::SingleSelection);
 
-  nlohmann::json aiSettings = readAISettings();
-  std::string activeProfile = aiSettings.value("activeProfile", "OpenAI GPT-4");
+  nlohmann::json aiSettings = AISettings::read();
+  std::string activeProfile = aiSettings.value("activeProfile", "Claude CLI");
   QString activeProfileQS = QString::fromStdString(activeProfile);
 
   nlohmann::json profilesObj = aiSettings.value("profiles", nlohmann::json::object());
@@ -287,12 +251,26 @@ void Preferences::init()
 
   if (profiles.isEmpty()) {
     profiles =
-      QStringList{_("OpenAI GPT-4"), _("Anthropic Claude"), _("Ollama Local"), _("Custom / Local LLM")};
+      QStringList{_("Claude CLI"), _("OpenAI GPT-4"), _("Anthropic Claude"), _("Ollama Local"), _("Custom / Local LLM")};
     for (const auto& p : profiles) {
       nlohmann::json prof = nlohmann::json::object();
       nlohmann::json params = nlohmann::json::object();
       std::string pStr = p.toStdString();
-      if (p == _("OpenAI GPT-4")) {
+      if (p == _("Claude CLI")) {
+        prof["command"] = "claude -p --permission-mode bypassPermissions --output-format text";
+        prof["endpoint"] = "";
+        params["system_prompt"] =
+          "You are an expert OpenSCAD designer. Write clean, elegant, and efficient OpenSCAD code. "
+          "All units are in millimeters. "
+          "Abstract all dimensions, counts, and configuration into variables at the top of the file. "
+          "Group variables by the object or component they belong to, with a comment header for each group. "
+          "Prefer intersections at inner scopes and unions at the outermost scope. "
+          "Comment every section, module, and non-obvious line to explain intent. "
+          "Always respond with ONLY the complete OpenSCAD code wrapped in a ```openscad code block. "
+          "No explanations outside the code block.";
+        params["context_limit"] = 10;
+        params["timeout"] = 300000;
+      } else if (p == _("OpenAI GPT-4")) {
         prof["endpoint"] = "https://api.openai.com/v1";
         params["model"] = "gpt-4o";
         params["temperature"] = 0.7;
@@ -300,6 +278,7 @@ void Preferences::init()
         params["system_prompt"] =
           "You are an expert OpenSCAD designer. Write clean, elegant, and efficient OpenSCAD code.";
         params["context_limit"] = 10;
+        params["timeout"] = 120000;
       } else if (p == _("Anthropic Claude")) {
         prof["endpoint"] = "https://api.anthropic.com/v1";
         params["model"] = "claude-3-5-sonnet-latest";
@@ -309,6 +288,7 @@ void Preferences::init()
           "You are an expert OpenSCAD designer. Write clean, elegant, and efficient OpenSCAD code.";
         params["context_limit"] = 10;
         params["anthropic-version"] = "2023-06-01";
+        params["timeout"] = 120000;
       } else if (p == _("Ollama Local")) {
         prof["endpoint"] = "http://localhost:11434/v1";
         params["model"] = "deepseek-coder";
@@ -317,6 +297,7 @@ void Preferences::init()
         params["system_prompt"] =
           "You are an expert OpenSCAD designer. Write clean, elegant, and efficient OpenSCAD code.";
         params["context_limit"] = 10;
+        params["timeout"] = 120000;
       } else {
         prof["endpoint"] = "http://localhost:8080/v1";
         params["model"] = "custom";
@@ -325,14 +306,16 @@ void Preferences::init()
         params["system_prompt"] =
           "You are an expert OpenSCAD designer. Write clean, elegant, and efficient OpenSCAD code.";
         params["context_limit"] = 10;
+        params["timeout"] = 120000;
       }
       prof["params"] = params;
       prof["apiKey"] = "";
+      if (!prof.contains("command")) prof["command"] = "";
       profilesObj[pStr] = prof;
     }
     aiSettings["profiles"] = profilesObj;
-    aiSettings["activeProfile"] = activeProfile;
-    writeAISettings(aiSettings);
+    aiSettings["activeProfile"] = "Claude CLI";
+    AISettings::write(aiSettings);
   }
 
   this->comboBoxAIProfile->clear();
@@ -1426,11 +1409,12 @@ void Preferences::on_comboBoxAIProfile_currentIndexChanged(int index)
   if (index < 0) return;
   const QString profileName = this->comboBoxAIProfile->itemText(index);
 
-  nlohmann::json aiSettings = readAISettings();
+  nlohmann::json aiSettings = AISettings::read();
   aiSettings["activeProfile"] = profileName.toStdString();
-  writeAISettings(aiSettings);
+  AISettings::write(aiSettings);
 
   loadAIParams(profileName);
+  emit aiSettingsChanged();
 }
 
 void Preferences::on_pushButtonAINewProfile_clicked()
@@ -1448,7 +1432,7 @@ void Preferences::on_pushButtonAINewProfile_clicked()
 
   this->comboBoxAIProfile->addItem(trimmed);
 
-  nlohmann::json aiSettings = readAISettings();
+  nlohmann::json aiSettings = AISettings::read();
   nlohmann::json profilesObj = aiSettings.value("profiles", nlohmann::json::object());
 
   nlohmann::json newProfile = nlohmann::json::object();
@@ -1466,7 +1450,7 @@ void Preferences::on_pushButtonAINewProfile_clicked()
 
   profilesObj[trimmed.toStdString()] = newProfile;
   aiSettings["profiles"] = profilesObj;
-  writeAISettings(aiSettings);
+  AISettings::write(aiSettings);
 
   this->comboBoxAIProfile->setCurrentIndex(this->comboBoxAIProfile->count() - 1);
 }
@@ -1482,11 +1466,11 @@ void Preferences::on_pushButtonAIDeleteProfile_clicked()
                                             QMessageBox::Yes | QMessageBox::No);
   if (result != QMessageBox::Yes) return;
 
-  nlohmann::json aiSettings = readAISettings();
+  nlohmann::json aiSettings = AISettings::read();
   nlohmann::json profilesObj = aiSettings.value("profiles", nlohmann::json::object());
   profilesObj.erase(profileName.toStdString());
   aiSettings["profiles"] = profilesObj;
-  writeAISettings(aiSettings);
+  AISettings::write(aiSettings);
 
   this->comboBoxAIProfile->removeItem(idx);
 }
@@ -1498,6 +1482,12 @@ void Preferences::on_lineEditAIApiEndpoint_textChanged(const QString& text)
 }
 
 void Preferences::on_lineEditAIApiKey_textChanged(const QString& text)
+{
+  Q_UNUSED(text);
+  saveAIParams();
+}
+
+void Preferences::on_lineEditAICommand_textChanged(const QString& text)
 {
   Q_UNUSED(text);
   saveAIParams();
@@ -1537,15 +1527,17 @@ void Preferences::on_tableWidgetAIParams_itemChanged(QTableWidgetItem *item)
 
 void Preferences::loadAIParams(const QString& profileName)
 {
-  nlohmann::json aiSettings = readAISettings();
+  nlohmann::json aiSettings = AISettings::read();
   nlohmann::json profilesObj = aiSettings.value("profiles", nlohmann::json::object());
   std::string profileNameStr = profileName.toStdString();
   nlohmann::json profileObj = profilesObj.value(profileNameStr, nlohmann::json::object());
 
   std::string endpoint = profileObj.value("endpoint", "");
   std::string apiKey = profileObj.value("apiKey", "");
+  std::string command = profileObj.value("command", "");
   BlockSignals<QLineEdit *>(this->lineEditAIApiEndpoint)->setText(QString::fromStdString(endpoint));
   BlockSignals<QLineEdit *>(this->lineEditAIApiKey)->setText(QString::fromStdString(apiKey));
+  BlockSignals<QLineEdit *>(this->lineEditAICommand)->setText(QString::fromStdString(command));
 
   this->tableWidgetAIParams->blockSignals(true);
   this->tableWidgetAIParams->setRowCount(0);
@@ -1593,12 +1585,13 @@ void Preferences::saveAIParams()
   const QString profileName = this->comboBoxAIProfile->itemText(idx);
   std::string profileNameStr = profileName.toStdString();
 
-  nlohmann::json aiSettings = readAISettings();
+  nlohmann::json aiSettings = AISettings::read();
   nlohmann::json profilesObj = aiSettings.value("profiles", nlohmann::json::object());
   nlohmann::json profileObj = profilesObj.value(profileNameStr, nlohmann::json::object());
 
   profileObj["endpoint"] = this->lineEditAIApiEndpoint->text().toStdString();
   profileObj["apiKey"] = this->lineEditAIApiKey->text().toStdString();
+  profileObj["command"] = this->lineEditAICommand->text().toStdString();
 
   nlohmann::json paramsObj = nlohmann::json::object();
   for (int row = 0; row < this->tableWidgetAIParams->rowCount(); ++row) {
@@ -1634,7 +1627,8 @@ void Preferences::saveAIParams()
 
   profilesObj[profileNameStr] = profileObj;
   aiSettings["profiles"] = profilesObj;
-  writeAISettings(aiSettings);
+  AISettings::write(aiSettings);
+  emit aiSettingsChanged();
 }
 
 void Preferences::writeSettings()
@@ -1874,8 +1868,8 @@ void Preferences::updateGUI()
                  Settings::Settings::octoPrintSlicerProfile.value());
 
   // AI tab: populate fields from current profile settings
-  nlohmann::json aiSettings = readAISettings();
-  std::string activeProfile = aiSettings.value("activeProfile", "OpenAI GPT-4");
+  nlohmann::json aiSettings = AISettings::read();
+  std::string activeProfile = aiSettings.value("activeProfile", "Claude CLI");
   QString activeProfileQS = QString::fromStdString(activeProfile);
   int activeIdx = this->comboBoxAIProfile->findText(activeProfileQS);
   if (activeIdx >= 0) {

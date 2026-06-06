@@ -160,6 +160,7 @@ public slots:
   void on_pushButtonAIDeleteProfile_clicked();
   void on_lineEditAIApiEndpoint_textChanged(const QString&);
   void on_lineEditAIApiKey_textChanged(const QString&);
+  void on_lineEditAICommand_textChanged(const QString&);
   void on_pushButtonAIParamAdd_clicked();
   void on_pushButtonAIParamRemove_clicked();
   void on_tableWidgetAIParams_itemChanged(class QTableWidgetItem *item);
@@ -169,6 +170,7 @@ private:
   void saveAIParams();
 
 signals:
+  void aiSettingsChanged() const;
   void requestRedraw() const;
   void updateUndockMode(bool undockMode) const;
   void updateReorderMode(bool undockMode) const;

@@ -13,9 +13,11 @@ public:
   AIDock(QWidget *parent = nullptr);
   virtual ~AIDock();
 
+  ChatWidget *chatWidget() const { return chatWidget_; }
+
 protected:
   void showEvent(QShowEvent *event) override;
 
 private:
-  ChatWidget *chatWidget;
+  ChatWidget *chatWidget_;
 };
